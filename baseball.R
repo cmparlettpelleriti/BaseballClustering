@@ -65,10 +65,31 @@ write.csv(hDat, "/Users/chelseaparlett/Desktop/Desktop/Github/BaseBall/hierarchi
 #knn------------------------------------------------------
 oldPs <- read.csv(file.choose())
 newPs <- read.csv(file.choose())
+OP <- read.csv(file.choose())
+ns <- names(oldPs[3:14])
+for (i in ns){
+  newPs[,i] <- (newPs[,i] - mean(OP[,i]))/sd(OP[,i])
+}
+
+
 oldPs$C2 <-factor(oldPs$C2)
 oldPs$C3 <-factor(oldPs$C3)
 
-knn(oldPs[,3:14],newPs[,3:14], cl = oldPs$C3, k = 5, prob = T)
+Knn3 <- knn(oldPs[,3:14],newPs[,3:14], cl = oldPs$C3, k = 5, prob = T)
+Knn2 <- knn(oldPs[,3:14],newPs[,3:14], cl = oldPs$C2, k = 5, prob = T)
+
+newPs$C2 <- Knn2
+newPs$C3 <- Knn3
+
+newPs2 <- newPs[,c(3:14,18)]
+ggRadar(data = newPs2, aes(group = C2), rescale = F, legend.position = "right")+
+  theme(legend.title=element_blank(),legend.text=element_text(size=20)) + theme_minimal() + ggtitle(paste(2,"Cluster Characteristics"))
+ggsave(paste0("/Users/chelseaparlett/Desktop/Desktop/Github/BaseBall/radar/NEWPLAYERS",2,".png"), units = "in", height = 10, width = 10)
+
+newPs3 <- newPs[,c(3:14,19)]
+ggRadar(data = newPs3, aes(group = C3), rescale = F, legend.position = "right")+
+  theme(legend.title=element_blank(),legend.text=element_text(size=20)) + theme_minimal() + ggtitle(paste(3,"Cluster Characteristics"))
+ggsave(paste0("/Users/chelseaparlett/Desktop/Desktop/Github/BaseBall/radar/NEWPLAYERS",3,".png"), units = "in", height = 10, width = 10)
 #analyses--------------------------------------------------
 Y <- cbind(oldPs$WPA,oldPs$WAR,oldPs$SIERA)
 man <- manova(Y ~ oldPs$C2)

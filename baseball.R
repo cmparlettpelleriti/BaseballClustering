@@ -1,3 +1,6 @@
+###########################################################
+#ADMIN
+###########################################################
 #libraries----------------------------------------------
 library(scales)
 library(DescTools)
@@ -18,6 +21,12 @@ library(caret)
 library(gridExtra)
 library(class)
 library(MASS)
+library(kohonen)          # SOMs
+library(igraph)           # for NBRC
+library(ggraph)           # for NBRC
+library(som)              # SOMs round 2
+library(microbenchmark)
+library(gRbase)
 #functions------------------------------------------------
 hac <- function(df,cN,start = 1){
   set.seed(123)
@@ -37,41 +46,165 @@ em <- function(df, cN, start = 1){
   print(mod$bic)
   return(df)
 }
-
+makekNNgraph <- function(df, k = 5, names = F){
+  d <- as.matrix(dist(df))
+  rnames <- rownames(df)
+  connections <- c()
+  for (i in 1:dim(d)[1]){
+    d[i,i] <- 999999999 #don't count self as match
+    indices <- which(d[,i] %in% sort(d[,i])[1:k])
+    indices <- indices[1:k] #incase theres too many
+    for (j in indices){
+      if (names){
+        connections <- c(connections, rnames[i], rnames[j])
+      } else {
+        connections <- c(connections, i, j)
+      }
+    }
+  }
+  connections <- as.character(connections)
+  graph <- graph(edges = connections,
+                 n = dim(d)[1],
+                 directed = F)
+  graph <- simplify(graph)
+  
+  return(graph)
+}
+nbrClust <- function(graph, method = "vat", attackUpperBound = 5){
+  graph <- knnBB
+  method = "vat"
+  attackUpperBound = 5
+  n <- vcount(graph)
+  print("finding attak set options...")
+  
+  trythis <- function(n,x){
+    as.list(data.frame(combn(n,x)))
+    print(x)
+  }
+  attacks <- lapply(1:attackUpperBound,
+                    FUN = function(x) trythis(n,x))
+  attacksTest <- do.call(c, attacks)
+  
+  resilience <- function(graph, attackset){
+    V_S <- delete_vertices(graph, attackset)
+    comps <- components(V_S)
+    sCmax <- max(comps$csize)
+    sV <- vcount(graph)
+    sS <- length(attackset)
+    k <- length(comps$csize)
+    sV_S <- vcount(V_S)
+    
+    integrity <- (sS + sCmax)/(sV)
+    vat <- (sS)/((sV_S - sCmax) +1)
+    toughness <- (sS)/k
+    
+    return(list(integrity = integrity,
+                vat = vat,
+                toughness = toughness,
+                k = k,
+                attackset = attackset,
+                V_S = V_S))
+  }
+  
+  
+  
+  print("testing attack sets...")
+  results <- lapply(attacksTest, function(x) resilience(graph,x))
+  print("almost done...")
+  res <- as.numeric(sapply(results, function(x) x[method]))
+  
+  candidates <- which(res == min(res))
+  
+  if (length(candidates) > 1){
+    optimalchoice <- results[[sample(candidates,1)]]
+  } else {
+    optimalchoice <- results[[candidates[1]]]
+  }
+  
+  names(optimalchoice)
+  return(optimalchoice)
+}
+somDat <- function(n1,n2,df){
+  somMod <- som(scale(df[1:11]), grid = somgrid(n1,n2))
+  plot(somMod)
+  df[,paste0("som", n1, "_", n2)] <- somMod$unit.classif
+  return(list(model = somMod, dataFrame = df))
+}
+somDat2 <- function(n1,n2,df){
+  somMod <- som::som(df[1:11], n1, n2, init="linear", alpha=NULL, alphaType="inverse",
+      neigh="gaussian", topol="rect", radius=NULL, rlen=NULL, err.radius=1,
+      inv.alp.c=NULL)
+  df[,paste0("som", n1, "_",n2)] <- paste0(somMod$visual$x,somMod$visual$y)
+  return(list(model = somMod, dataFrame = df))
+}
 #dataLoad-------------------------------------------------
-d <- read.csv(file.choose())
-d2 <- data.frame(lapply(d[,3:14],scale))
+setwd("/Users/chelseaparlett/Desktop/Desktop/Github/BaseBall/Data/AnalysisDat")
+d <- read.csv("OldPitch.csv")
+select <- names(d) %in% c("C2","C3","C4",
+                          "C5","C6","C7",
+                          "C8","C9")
+d <- d[, !select ]
+d2 <- data.frame(lapply(d[,3:13],scale))
 d2$name <- d$name
 
 #dataCheck-----------------------------------------------
-plot(d2[,1:13])
+plot(d2[,1:11])
+
+###########################################################
+#CLUSTERING
+###########################################################
 #HAC------------------------------------------------------
-hDat <- hac(d2, cN = dim(d2)[2]-1, start = 1)
+hDat <- hac(d2, cN = 11, start = 1)
 #EM-------------------------------------------------------
 #mDat <- em(d2,dim(d2)[2]-1)
+#NBRC------------------------------------------------------
+rownames(d2) <- d2$name
+knnBB <- makekNNgraph(d2[1:11], names = T)
+nbrcBB <- nbrClust(knnBB, method = "integrity", attackUpperBound = 7)
+#SOM-------------------------------------------------------
+
+som1_2 <- somDat2(1,2,d2)
+d2 <- som1_2$dataFrame
+
+som1_3 <- somDat2(1,3,d2)
+d2 <- som1_3$dataFrame
+
+som2_2 <- somDat2(2,2,d2)
+d2 <- som2_2$dataFrame
+
+som2_3 <- somDat2(2,3,d2)
+d2 <- som2_3$dataFrame
+
+###########################################################
+#PLOTTING
+###########################################################
 #Plots----------------------------------------------------
 #hDat <- read.csv(file.choose())[,2:22]
 for (i in 2:9){
-  dt <- hDat[,c(1:12,12+i)]
-  names(dt) <- c(names(dt)[1:12], "ClusterAssign")
+  dt <- hDat[,c(1:11,11+i)]
+  names(dt) <- c(names(dt)[1:11], "ClusterAssign")
   dt$ClusterAssign <- factor(dt$ClusterAssign)
 ggRadar(data = dt, aes(group = ClusterAssign), rescale = F, legend.position = "right")+
   theme(legend.title=element_blank(),legend.text=element_text(size=20)) + theme_minimal() + ggtitle(paste(i,"Cluster Characteristics"))
 ggsave(paste0("/Users/chelseaparlett/Desktop/Desktop/Github/BaseBall/radar/RadarnoWAR",i,".png"), units = "in", height = 10, width = 10)
 }
 #pca PLOTS------------------------------------------------
+###########################################################
+#SAVE DATA
+###########################################################
 #saveData-------------------------------------------------
-write.csv(hDat, "/Users/chelseaparlett/Desktop/Desktop/Github/BaseBall/hierarchicalBaseBallnoWAR.csv", row.names = F)
+write.csv(hDat, "/Users/chelseaparlett/Desktop/Desktop/Github/BaseBall/CurrentData.csv", row.names = F)
+###########################################################
+#EVALUATING MODELS
+###########################################################
 #knn------------------------------------------------------
 # oldPs <- read.csv(file.choose())
 oldPs <- hDat
-oldPsExtra <- read.csv(file.choose())
-newPs <- read.csv(file.choose())
-OP <- read.csv(file.choose())
-OP$whiffs <- d$whiffs
+newPs <- read.csv("NewPitch.csv")
+
 ns <- names(oldPs[1:12])
 for (i in ns){
-  newPs[,i] <- (newPs[,i] - mean(OP[,i]))/sd(OP[,i])
+  newPs[,i] <- (newPs[,i] - mean(oldPs[,i]))/sd(OldPs[,i])
 }
 
 

@@ -27,6 +27,26 @@ library(ggraph)           # for NBRC
 library(som)              # SOMs round 2
 library(microbenchmark)
 library(gRbase)
+#LI-------------------------------------------------------
+LI <- graph( edges=c("Dani","Jack",
+                     "LauraA", "Wes","LauraA", "JackFo","LauraA", "Paul",
+                     "JoshD","Georgia", "JoshD", "Kazimir",
+                     "Megan", "Eyal", "Megan", "AlexM", "Megan", "Wes",
+                     "AlexG","Samira","AlexG","EllieB", "AlexG","Grace", "AlexG","Alexandra",
+                     "JackFo", "LauraC",
+                     "JoshM","Stephanie",
+                     "Georgia","Niall","Georgia","Sam",
+                     "Sam","Samira", "Sam", "EllieJ",
+                     "CharlieB","EllieB",
+                     "Samira","Frankie",
+                     "Darylle","Adam",
+                     "Zara","Adam",
+                     "Eyal", "Hayley",
+                     "Rosie", "Adam",
+                     "CharlieF", "Megan",
+                     "Niall", "Kendall",
+                     "Kendall","Adam"
+), directed=F) 
 #functions------------------------------------------------
 hac <- function(df,cN,start = 1){
   set.seed(123)
@@ -71,9 +91,9 @@ makekNNgraph <- function(df, k = 5, names = F){
   return(graph)
 }
 nbrClust <- function(graph, method = "vat", attackUpperBound = 5){
-  graph <- knnBB
+  graph <- LI
   method = "vat"
-  attackUpperBound = 5
+  attackUpperBound = 2
   n <- vcount(graph)
   print("finding attak set options...")
   
@@ -121,8 +141,73 @@ nbrClust <- function(graph, method = "vat", attackUpperBound = 5){
     optimalchoice <- results[[candidates[1]]]
   }
   
-  names(optimalchoice)
   return(optimalchoice)
+}
+greedyBC_NBR <- function(graph = NULL, method = "integrity", test = FALSE, treatAS = NULL){
+  if (test){
+    graph <- knnBB
+    method = "integrity"
+    test = TRUE
+  }
+  
+  resilience <- function(graph){
+    comps <- components(graph)
+    sCmax <- max(comps$csize)
+    sV <- vcount(graph)
+    sS <- length(attackset)
+    k <- length(comps$csize)
+    sV_S <- vcount(graph)
+    
+    integrity <- (sS + sCmax)/(sV)
+    vat <- (sS)/((sV_S - sCmax) +1)
+    toughness <- (sS)/k
+    
+    return(list(integrity = integrity,
+                vat = vat,
+                toughness = toughness,
+                k = k))
+  }
+  graph2 <- graph
+  n <- vcount(graph)
+  resils <- c()
+  
+  attackset <- c()
+  
+  while (vcount(graph) > 0){
+    BC <- betweenness(graph)
+    maxBC <- which(max(BC) == BC)[1]
+    attackset <- c(attackset,V(graph)$name[maxBC])
+    graph <- delete_vertices(graph, V(graph)$name[maxBC])
+    res <- resilience(graph)[method]
+    resils <- c(resils, as.numeric(res))
+  }
+  
+  resils[length(resils)] <- 99999
+  minR <- which(min(resils) == resils)
+  AS <- attackset[1:minR]
+  
+  V_S <- delete_vertices(graph2, AS)
+  comps <- components(V_S)
+  k <- length(comps$csize)
+  
+  ggraph(V_S) + geom_edge_link(edge_linetype = "longdash", colour = "dark gray") +
+    geom_node_point(size = 5, colour = "dark gray") +
+    geom_node_text(aes(label = V(V_S)$name),
+                   repel = T, colour = "black", fontface = "bold", size = 4) +
+    theme_void()
+  
+  return(list(resilience = min(resils),
+              k = k,
+              attackset = AS,
+              V_S = V_S))
+}
+graphGraph <- function(graph){
+  
+  ggraph(graph) + geom_edge_link(edge_linetype = "longdash", colour = "dark gray") +
+    geom_node_point(size = 5, colour = "dark gray") +
+    geom_node_text(aes(label = V(graph)$name),
+                   repel = T, colour = "black", fontface = "bold", size = 4) +
+    theme_void()
 }
 somDat <- function(n1,n2,df){
   somMod <- som(scale(df[1:11]), grid = somgrid(n1,n2))
@@ -159,8 +244,24 @@ hDat <- hac(d2, cN = 11, start = 1)
 #mDat <- em(d2,dim(d2)[2]-1)
 #NBRC------------------------------------------------------
 rownames(d2) <- d2$name
-knnBB <- makekNNgraph(d2[1:11], names = T)
-nbrcBB <- nbrClust(knnBB, method = "integrity", attackUpperBound = 7)
+
+knnBB <- makekNNgraph(d2[1:11], names = T, k = 3)
+
+ggraph(knnBB) + geom_edge_link(edge_linetype = "longdash", colour = "dark gray") +
+  geom_node_point(size = 5, colour = "dark gray") +
+  geom_node_text(aes(label = V(knnBB)$name),
+                 repel = T, colour = "black", fontface = "bold", size = 4) +
+  theme_void()
+
+greedyBB <- greedyBC_NBR(knnBB)
+
+ggraph(greedyBB$V_S) + geom_edge_link(edge_linetype = "longdash", colour = "dark gray") +
+  geom_node_point(size = 5, colour = "dark gray") +
+  geom_node_text(aes(label = V(greedyBB$V_S)$name),
+                 repel = T, colour = "black", fontface = "bold", size = 4) +
+  theme_void()
+
+#nbrcBB <- nbrClust(knnBB, method = "integrity", attackUpperBound = 7)
 #SOM-------------------------------------------------------
 
 som1_2 <- somDat2(1,2,d2)
